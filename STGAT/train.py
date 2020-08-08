@@ -47,7 +47,7 @@ parser.add_argument(
     "--heads", type=str, default="4,1", help="Heads in each layer, splitted with comma"
 )
 parser.add_argument(
-    "--hidden-units",
+    "--hidden_units",
     type=str,
     default="16",
     help="Hidden units in each hidden layer, splitted with comma",
