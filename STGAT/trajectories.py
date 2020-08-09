@@ -78,10 +78,17 @@ def poly_fit(traj, traj_len, threshold):
     else:
         return 0.0
 
-
+"""
+ $GN:
+ - 繼承"torch.Dataset"的屬性
+"""
 class TrajectoryDataset(Dataset):
     """Dataloder for the Trajectory datasets"""
-
+    
+    """
+      $GN:
+      - 帶有兩個下劃線開頭的函數是聲明該屬性為專有，不能在類地外部被使用或直接訪問
+    """
     def __init__(
         self,
         data_dir,
@@ -104,7 +111,14 @@ class TrajectoryDataset(Dataset):
         - min_ped: Minimum number of pedestrians that should be in a seqeunce
         - delim: Delimiter in the dataset files
         """
-        super(TrajectoryDataset, self).__init__()
+
+        """
+        $GN: 
+        - 用父類的初始化方法來初始化"繼承自父類"的屬性
+        - 子類繼承了父類的所有屬性和方法，父類屬性自然會用父類方法來進行初始化
+        - ex: super(xxx, self).__init__()
+        """
+        super(TrajectoryDataset, self).__init__()  # @linchungyi.gn: 用"Dataset"的init()進行初始化
 
         self.data_dir = data_dir
         self.obs_len = obs_len
@@ -112,6 +126,8 @@ class TrajectoryDataset(Dataset):
         self.skip = skip
         self.seq_len = self.obs_len + self.pred_len
         self.delim = delim
+
+        print("$GN","data_dir:",data_dir,"obs_len:",obs_len,"pred_len:",pred_len,"skip:",skip,"seq_len:",self.seq_len)
 
         all_files = os.listdir(self.data_dir)
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
@@ -121,12 +137,62 @@ class TrajectoryDataset(Dataset):
         loss_mask_list = []
         non_linear_ped = []
         for path in all_files:
+            print("$GN", "\n# File_Path:",path)
+
+            """
+            $GN:
+            - ex2: zara2/train/biwi_hotel_train.txt
+              =>data = [[ 0.0	1.0	1.41	-5.68]
+                        [ 0.0	2.0	0.51	-6.94]
+                        [ 0.0	3.0	2.3	-4.59]
+                        ...
+                        [10.0	1.0	1.28	-6.35]
+                        [10.0	2.0	0.55	-7.59]
+                        [10.0	3.0	1.94	-4.12]
+                        ...
+                        [20.0	3.0	1.53	-3.49]
+                        [20.0	4.0	2.73	-1.07]
+                        [20.0	5.0	-1.59	0.93]
+                        ...]
+            """
             data = read_file(path, delim)
+            
+            """
+            $GN:
+            - np.unique: 除數組中的重複數字，並進行排序後輸出
+            - np.unique(data[:, 0])=> 找出frame_number未重複的
+            - ex: frames: [0.0, 10.0, 20.0]
+            """
             frames = np.unique(data[:, 0]).tolist()
-            frame_data = []
+            print("$GN", "frames.length:",len(frames),"\nframes:",frames[:6])
+
+
+            frame_data = []  # 記錄不重複的軌跡資料
+            """
+            $GN:
+            - 利用未重複的list:"frames", 來比對並找出不重複的item of "data"
+            - ex: frame_data:  [ array([[ 0.  ,  1.  ,  1.41, -5.68],
+                                         [ 0.  ,  2.  ,  0.51, -6.94],
+                                         [ 0.  ,  3.  ,  2.3 , -4.59],
+                                         ...])
+                                  array([[10.  ,  1.  ,  1.28, -6.35],
+                                         [10.  ,  2.  ,  0.55, -7.59],
+                                         [10.  ,  3.  ,  1.94, -4.12],
+                                         [10.  ,  4.  ,  2.76, -1.77],
+                                         ...])
+                                  array([[20.  ,  3.  ,  1.53, -3.49],
+                                         [20.  ,  4.  ,  2.73, -1.07],
+                                         [20.  ,  5.  , -1.59,  0.93],
+                                         ...])
+                                  ...]
+            """
             for frame in frames:
                 frame_data.append(data[frame == data[:, 0], :])
+            print("$GN", "frame_data.length:",len(frame_data),"\nframe_data:",frame_data[:6])
+
             num_sequences = int(math.ceil((len(frames) - self.seq_len + 1) / skip))
+            print("$GN", "\nnum_sequences:",num_sequences)
+
 
             for idx in range(0, num_sequences * self.skip + 1, skip):
                 # curr_seq_data is a 20 length sequence
