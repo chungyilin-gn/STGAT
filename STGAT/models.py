@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import random
+import sys 
 
 
 def get_noise(shape, noise_type):
@@ -19,6 +20,13 @@ class BatchMultiHeadGraphAttention(nn.Module):
         self.n_head = n_head
         self.f_in = f_in
         self.f_out = f_out
+
+        """
+        $GN
+        - nn.Parameter: 為類型轉換函數，將一個不可訓練的類型Tensor轉換成可以訓練的類型Parameter, 
+                        並將這個Parameter綁定到這個module裡面
+        - 通過類型轉換, self.w變成了module的一部分，成為了模型中根據訓練可改動的參數
+        """
         self.w = nn.Parameter(torch.Tensor(n_head, f_in, f_out))
         self.a_src = nn.Parameter(torch.Tensor(n_head, f_out, 1))
         self.a_dst = nn.Parameter(torch.Tensor(n_head, f_out, 1))
@@ -32,18 +40,33 @@ class BatchMultiHeadGraphAttention(nn.Module):
         else:
             self.register_parameter("bias", None)
 
+        """
+        $GN
+        - xavier初始化方法中服從均勻分佈U(−a，a)
+        - 分佈的參數a =增益* sqrt（6 / fan_in + fan_out）
+        """
         nn.init.xavier_uniform_(self.w, gain=1.414)
         nn.init.xavier_uniform_(self.a_src, gain=1.414)
         nn.init.xavier_uniform_(self.a_dst, gain=1.414)
 
+        #______________________________#
+
+        
+
     def forward(self, h):
+        print("$$models.py"," -BatchMultiHeadGraphAttention()-->forward()")
+
         bs, n = h.size()[:2]
         h_prime = torch.matmul(h.unsqueeze(1), self.w)
+
         attn_src = torch.matmul(h_prime, self.a_src)
+
         attn_dst = torch.matmul(h_prime, self.a_dst)
+
         attn = attn_src.expand(-1, -1, -1, n) + attn_dst.expand(-1, -1, -1, n).permute(
             0, 1, 3, 2
         )
+
         attn = self.leaky_relu(attn)
         attn = self.softmax(attn)
         attn = self.dropout(attn)
@@ -65,7 +88,6 @@ class BatchMultiHeadGraphAttention(nn.Module):
             + ")"
         )
 
-
 class GAT(nn.Module):
     def __init__(self, n_units, n_heads, dropout=0.2, alpha=0.2):
         super(GAT, self).__init__()
@@ -75,6 +97,7 @@ class GAT(nn.Module):
 
         for i in range(self.n_layer):
             f_in = n_units[i] * n_heads[i - 1] if i else n_units[i]
+
             self.layer_stack.append(
                 BatchMultiHeadGraphAttention(
                     n_heads[i], f_in=f_in, f_out=n_units[i + 1], attn_dropout=dropout
@@ -87,6 +110,8 @@ class GAT(nn.Module):
         ]
 
     def forward(self, x):
+        print("$$models.py"," -GAT()-->forward()")
+
         bs, n = x.size()[:2]
         for i, gat_layer in enumerate(self.layer_stack):
             x = self.norm_list[i](x.permute(0, 2, 1)).permute(0, 2, 1)
@@ -106,6 +131,7 @@ class GATEncoder(nn.Module):
         self.gat_net = GAT(n_units, n_heads, dropout, alpha)
 
     def forward(self, obs_traj_embedding, seq_start_end):
+        print("$$models.py"," -GATEncoder()-->forward()")
         graph_embeded_data = []
         for start, end in seq_start_end.data:
             curr_seq_embedding_traj = obs_traj_embedding[:, start:end, :]
@@ -114,23 +140,38 @@ class GATEncoder(nn.Module):
         graph_embeded_data = torch.cat(graph_embeded_data, dim=1)
         return graph_embeded_data
 
-
+"""
+$GN: 
+- TrajectoryGenerator()
+    |_ self.gatencoder=GATEncoder()
+        |_ self.gat_net = GAT()
+"""
+"""
+$GN:
+  nn.LSTMCell: https://pytorch.org/docs/master/generated/torch.nn.LSTMCell.html
+"""
 class TrajectoryGenerator(nn.Module):
     def __init__(
         self,
         obs_len,
         pred_len,
-        traj_lstm_input_size,
-        traj_lstm_hidden_size,
-        n_units,
-        n_heads,
-        graph_network_out_dims,
+        traj_lstm_input_size,   #2
+        traj_lstm_hidden_size,  #32
+        n_units,   #[32, 16, 32]
+        n_heads,   #[4,1]
+        graph_network_out_dims, #32
         dropout,
         alpha,
-        graph_lstm_hidden_size,
+        graph_lstm_hidden_size, #32
         noise_dim=(8,),
         noise_type="gaussian",
     ):
+        """
+        $GN: 
+        - 用父類的初始化方法來初始化"繼承自父類"的屬性
+        - 子類繼承了父類的所有屬性和方法，父類屬性自然會用父類方法來進行初始化
+        - ex: super(xxx, self).__init__()
+        """
         super(TrajectoryGenerator, self).__init__()
 
         self.obs_len = obs_len
@@ -148,7 +189,26 @@ class TrajectoryGenerator(nn.Module):
             self.traj_lstm_hidden_size + self.graph_lstm_hidden_size + noise_dim[0]
         )
 
+        """
+        $GN:
+        - 初始宣告: torch.nn.LSTMCell(input_size: int, hidden_size: int, bias: bool = True)
+        - 呼叫: torch.nn.LSTMCell(input_t, (hx, cx))
+        - ex:
+          input_size = 10
+          hidden_size = 20
+          batch = 3
+
+          rnn = nn.LSTMCell(input_size, hidden_size)
+          hx = torch.randn(batch, hidden_size)
+          cx = torch.randn(batch, hidden_size)
+          output = []
+
+          for i in range(6):
+              hx, cx = rnn(input[i], (hx, cx))
+              output.append(hx)
+        """
         self.traj_lstm_model = nn.LSTMCell(traj_lstm_input_size, traj_lstm_hidden_size)
+        
         self.graph_lstm_model = nn.LSTMCell(
             graph_network_out_dims, graph_lstm_hidden_size
         )
@@ -200,25 +260,80 @@ class TrajectoryGenerator(nn.Module):
         teacher_forcing_ratio=0.5,
         training_step=3,
     ):
-        batch = obs_traj_rel.shape[1]
+        
+        print("$$models.py","TrajectoryGenerator()->forward()\n training_step:",training_step)
+        """
+        $GN:
+        nn.LSTMCell:
+        - Inputs: input, (h_0, c_0)
+            - input of shape (batch, input_size): tensor containing input features
+            - h_0 of shape (batch, hidden_size): tensor containing the initial hidden state for each element in the batch.
+            - c_0 of shape (batch, hidden_size): tensor containing the initial cell state for each element in the batch.
+            If (h_0, c_0) is not provided, both h_0 and c_0 default to zero.
+        - Outputs: (h_1, c_1)
+          - h_1 of shape (batch, hidden_size): tensor containing the next hidden state for each element in the batch
+          - c_1 of shape (batch, hidden_size): tensor containing the next cell state for each element in the batch
+        """
+
+        batch = obs_traj_rel.shape[1]  # obs_traj_rel:torch.Size([8, 164, 2]) => batch: 164
+        """
+        $GN:
+        - h_0 of shape (batch, hidden_size): tensor containing the initial hidden state for each element in the batch.
+        - c_0 of shape (batch, hidden_size): tensor containing the initial cell state for each element in the batch.
+        - ex:
+            traj_lstm_h_t.size():torch.Size([164, 32])
+            traj_lstm_c_t.size():torch.Size([164, 32])
+            graph_lstm_h_t.size():torch.Size([164, 32])
+            graph_lstm_c_t.size():torch.Size([164, 32])
+        """
         traj_lstm_h_t, traj_lstm_c_t = self.init_hidden_traj_lstm(batch)
         graph_lstm_h_t, graph_lstm_c_t = self.init_hidden_graph_lstm(batch)
+
         pred_traj_rel = []
         traj_lstm_hidden_states = []
         graph_lstm_hidden_states = []
+
+        """
+        $GN:
+        - ex:
+          - obs_traj_rel.size():torch.Size([8, 164, 2])
+          - obs_traj_rel[: self.obs_len].size(0): 8
+          - obs_traj_rel[: self.obs_len].chunk(
+                  obs_traj_rel[: self.obs_len].size(0), dim=0
+              )
+            => 拆成"obs_traj_rel[: self.obs_len].size(0)"個
+              torch.Size([1, 164, 2])
+        """
         for i, input_t in enumerate(
             obs_traj_rel[: self.obs_len].chunk(
                 obs_traj_rel[: self.obs_len].size(0), dim=0
             )
         ):
+            
+            """
+            $GN:
+            - 呼叫torch.nn.LSTMCell: torch.nn.LSTMCell(input_t, (hx, cx))
+            - input_t.squeeze(0)
+            ex:
+              - input_t.size():torch.Size([1, 164, 2])
+              - input_t.squeeze(0).size(): torch.Size([164, 2])
+            """
             traj_lstm_h_t, traj_lstm_c_t = self.traj_lstm_model(
                 input_t.squeeze(0), (traj_lstm_h_t, traj_lstm_c_t)
             )
+
             if training_step == 1:
-                output = self.traj_hidden2pos(traj_lstm_h_t)
+                """
+                $GN:
+                  LSTM輸出.size()= traj_lstm_hidden_size
+                  用Linear轉換成size()=2
+                """
+                output = self.traj_hidden2pos(traj_lstm_h_t) #traj_hidden2pos: nn.Linear(self.traj_lstm_hidden_size, 2)
                 pred_traj_rel += [output]
             else:
                 traj_lstm_hidden_states += [traj_lstm_h_t]
+            
+            sys.exit()
         if training_step == 2:
             graph_lstm_input = self.gatencoder(
                 torch.stack(traj_lstm_hidden_states), seq_start_end
