@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 import sys 
+import numpy as np
 
 
 def get_noise(shape, noise_type):
@@ -49,28 +50,79 @@ class BatchMultiHeadGraphAttention(nn.Module):
         nn.init.xavier_uniform_(self.a_src, gain=1.414)
         nn.init.xavier_uniform_(self.a_dst, gain=1.414)
 
-        #______________________________#
-
-        
 
     def forward(self, h):
-        print("$$models.py"," -BatchMultiHeadGraphAttention()-->forward()")
+        
+        """
+        $GN:
+        bs: obs length
+        n:  nums of ped
+        """
+        bs, n = h.size()[:2] 
+        
 
-        bs, n = h.size()[:2]
+        """
+        $GN:
+        - self.w: torch.Tensor(n_head, f_in, f_out) ex: (4,32,16)
+        - h.unsqueeze(1) ex: torch.Size([8, 1, 2, 32]) 
+          => torch.matmul: (2,32) * (32, 16) => (2,16) 
+          => 因為有4個head, 所以變成 (4,2,16)
+          => 共有8個step, 所以變成: (8,4,2,16) == h_prime
+        """
         h_prime = torch.matmul(h.unsqueeze(1), self.w)
 
         attn_src = torch.matmul(h_prime, self.a_src)
 
         attn_dst = torch.matmul(h_prime, self.a_dst)
 
+
+        print("$models.py.BatchMultiHeadGraphAttention()",
+              "\n h.size()",h.size(),
+              "\n h.size()[:2]",h.size()[:2],
+              "\n h.unsqueeze(1).size()",h.unsqueeze(1).size(),
+              "\n self.w.size()",self.w.size(),
+              "\n h_prime.size()",h_prime.size(),
+              "\n self.a_src.size()",self.a_src.size(),
+              "\n attn_src.size()",attn_src.size(),
+              "\n self.a_dst.size()",self.a_dst.size(),
+              "\n attn_dst.size()",attn_dst.size())
+
+        attn_src_expand = attn_src.expand(-1, -1, -1, n)
+        attn_dst_expand = attn_dst.expand(-1, -1, -1, n)
         attn = attn_src.expand(-1, -1, -1, n) + attn_dst.expand(-1, -1, -1, n).permute(
             0, 1, 3, 2
         )
 
+        print("$models.py.BatchMultiHeadGraphAttention()",
+              "\n attn_src[0]",attn_src[0],
+              "\n attn_src_expand[0]",attn_src_expand[0],
+              "\n attn_dst[0]",attn_dst[0],
+              "\n attn_dst_expand[0]",attn_dst_expand[0],
+              "\n attn_dst_expand.permute[0]",attn_dst.expand(-1, -1, -1, n).permute( 0, 1, 3, 2 ),
+              "\n attn[0]",attn[0]
+              )
+
+        '''
+        print("$models.py.BatchMultiHeadGraphAttention()",
+              "\n attn_src.expand(-1, -1, -1, n).size",attn_src.expand(-1, -1, -1, n).size(),
+              "\n attn_dst.expand(-1, -1, -1, n).permute(  0, 1, 3, 2).size()",attn_dst.expand(-1, -1, -1, n).permute(  0, 1, 3, 2).size(),
+              "\n attn.size",attn.size() )
+        '''
         attn = self.leaky_relu(attn)
+        print("$models.py.BatchMultiHeadGraphAttention()",
+              "\n after leaky_relu:",attn.size()  )
+
         attn = self.softmax(attn)
+        print("$models.py.BatchMultiHeadGraphAttention()",
+              "\n after softmax:",attn.size()  )
         attn = self.dropout(attn)
+        print("$models.py.BatchMultiHeadGraphAttention()",
+              "\n after dropout:",attn.size()  )
+
         output = torch.matmul(attn, h_prime)
+        print("$models.py.BatchMultiHeadGraphAttention()",
+              "\n after output:",output.size()  )
+
         if self.bias is not None:
             return output + self.bias, attn
         else:
@@ -103,19 +155,52 @@ class GAT(nn.Module):
                     n_heads[i], f_in=f_in, f_out=n_units[i + 1], attn_dropout=dropout
                 )
             )
-
+        """
+        $GN:
+        -Applies Instance Normalization over a 3D input 
+          Input: (N, C, L)
+          Output: (N, C, L) (same shape as input)
+        - ex: 
+          m = nn.InstanceNorm1d(2)
+          input = torch.randn(2, 3, 4)*100
+          output = m(input)
+        """
         self.norm_list = [
             torch.nn.InstanceNorm1d(32).cuda(),
             torch.nn.InstanceNorm1d(64).cuda(),
         ]
 
     def forward(self, x):
-        print("$$models.py"," -GAT()-->forward()")
 
-        bs, n = x.size()[:2]
+        """
+        $GN:
+        x.size() 
+        => [0,2] =>  torch.Size([8, 2, 32])
+        => [4,7] =>  torch.Size([8, 3, 32])
+        """
+        bs, n = x.size()[:2] # ex: torch.Size([8, 2, 32]) => bs,n = (8,2)
+        
+        print("$models.py.GAT()",
+              "\n x.size()",x.size(),
+              "\n x.size()[:2]",x.size()[:2])
+
         for i, gat_layer in enumerate(self.layer_stack):
-            x = self.norm_list[i](x.permute(0, 2, 1)).permute(0, 2, 1)
+
+            """
+            &GN: 
+            - x: torch.Size([8, 2, 32])
+            - x.permute(0, 2, 1): torch.Size([8, 32, 2])
+            - self.norm_list(): normalize
+            """
+            x = self.norm_list[i](x.permute(0, 2, 1)).permute(0, 2, 1) #兩次轉置,回復原狀
+            
+            print("$models.py.GAT()",
+              "\n normalized x.size()",x.size())
+
             x, attn = gat_layer(x)
+
+
+            
             if i + 1 == self.n_layer:
                 x = x.squeeze(dim=1)
             else:
@@ -131,12 +216,22 @@ class GATEncoder(nn.Module):
         self.gat_net = GAT(n_units, n_heads, dropout, alpha)
 
     def forward(self, obs_traj_embedding, seq_start_end):
-        print("$$models.py"," -GATEncoder()-->forward()")
+        
         graph_embeded_data = []
+        count =0
         for start, end in seq_start_end.data:
             curr_seq_embedding_traj = obs_traj_embedding[:, start:end, :]
+            print("$modesl.py.GATEncoder()",start,end,"\n curr_seq_embedding_traj.size():" , curr_seq_embedding_traj.size())
+            
+            
             curr_seq_graph_embedding = self.gat_net(curr_seq_embedding_traj)
+
+            print("curr_seq_graph_embedding.size():" ,curr_seq_graph_embedding.size())
             graph_embeded_data.append(curr_seq_graph_embedding)
+            
+            if count == 2:
+                sys.exit()
+            count+=1
         graph_embeded_data = torch.cat(graph_embeded_data, dim=1)
         return graph_embeded_data
 
@@ -193,19 +288,6 @@ class TrajectoryGenerator(nn.Module):
         $GN:
         - 初始宣告: torch.nn.LSTMCell(input_size: int, hidden_size: int, bias: bool = True)
         - 呼叫: torch.nn.LSTMCell(input_t, (hx, cx))
-        - ex:
-          input_size = 10
-          hidden_size = 20
-          batch = 3
-
-          rnn = nn.LSTMCell(input_size, hidden_size)
-          hx = torch.randn(batch, hidden_size)
-          cx = torch.randn(batch, hidden_size)
-          output = []
-
-          for i in range(6):
-              hx, cx = rnn(input[i], (hx, cx))
-              output.append(hx)
         """
         self.traj_lstm_model = nn.LSTMCell(traj_lstm_input_size, traj_lstm_hidden_size)
         
@@ -260,31 +342,24 @@ class TrajectoryGenerator(nn.Module):
         teacher_forcing_ratio=0.5,
         training_step=3,
     ):
-        
-        print("$$models.py","TrajectoryGenerator()->forward()\n training_step:",training_step)
+        """
+        $GN:
+        - obs_traj_rel:torch.Size([8, 164, 2]) 
+          => batch: 164
+        """
+        batch = obs_traj_rel.shape[1]  
+
         """
         $GN:
         nn.LSTMCell:
-        - Inputs: input, (h_0, c_0)
-            - input of shape (batch, input_size): tensor containing input features
-            - h_0 of shape (batch, hidden_size): tensor containing the initial hidden state for each element in the batch.
-            - c_0 of shape (batch, hidden_size): tensor containing the initial cell state for each element in the batch.
-            If (h_0, c_0) is not provided, both h_0 and c_0 default to zero.
         - Outputs: (h_1, c_1)
-          - h_1 of shape (batch, hidden_size): tensor containing the next hidden state for each element in the batch
-          - c_1 of shape (batch, hidden_size): tensor containing the next cell state for each element in the batch
-        """
-
-        batch = obs_traj_rel.shape[1]  # obs_traj_rel:torch.Size([8, 164, 2]) => batch: 164
-        """
-        $GN:
-        - h_0 of shape (batch, hidden_size): tensor containing the initial hidden state for each element in the batch.
-        - c_0 of shape (batch, hidden_size): tensor containing the initial cell state for each element in the batch.
+          - h_1 of shape (batch, hidden_size)
+          - c_1 of shape (batch, hidden_size)
         - ex:
-            traj_lstm_h_t.size():torch.Size([164, 32])
-            traj_lstm_c_t.size():torch.Size([164, 32])
-            graph_lstm_h_t.size():torch.Size([164, 32])
-            graph_lstm_c_t.size():torch.Size([164, 32])
+          traj_lstm_h_t.size():torch.Size([164, 32])
+          traj_lstm_c_t.size():torch.Size([164, 32])
+          graph_lstm_h_t.size():torch.Size([164, 32])
+          graph_lstm_c_t.size():torch.Size([164, 32])
         """
         traj_lstm_h_t, traj_lstm_c_t = self.init_hidden_traj_lstm(batch)
         graph_lstm_h_t, graph_lstm_c_t = self.init_hidden_graph_lstm(batch)
@@ -309,7 +384,6 @@ class TrajectoryGenerator(nn.Module):
                 obs_traj_rel[: self.obs_len].size(0), dim=0
             )
         ):
-            
             """
             $GN:
             - 呼叫torch.nn.LSTMCell: torch.nn.LSTMCell(input_t, (hx, cx))
@@ -317,6 +391,14 @@ class TrajectoryGenerator(nn.Module):
             ex:
               - input_t.size():torch.Size([1, 164, 2])
               - input_t.squeeze(0).size(): torch.Size([164, 2])
+            nn.LSTMCell:
+            - Inputs: input, (h_0, c_0)
+                - input of shape (batch, input_size)
+                - h_0 of shape (batch, hidden_size)
+                - c_0 of shape (batch, hidden_size)
+            - Outputs: (h_1, c_1)
+                - h_1 of shape (batch, hidden_size)
+                - c_1 of shape (batch, hidden_size)
             """
             traj_lstm_h_t, traj_lstm_c_t = self.traj_lstm_model(
                 input_t.squeeze(0), (traj_lstm_h_t, traj_lstm_c_t)
@@ -325,19 +407,47 @@ class TrajectoryGenerator(nn.Module):
             if training_step == 1:
                 """
                 $GN:
-                  LSTM輸出.size()= traj_lstm_hidden_size
+                - LSTM輸出.size()= traj_lstm_hidden_size
                   用Linear轉換成size()=2
+                - output.size(): torch.Size([164, 32])
                 """
                 output = self.traj_hidden2pos(traj_lstm_h_t) #traj_hidden2pos: nn.Linear(self.traj_lstm_hidden_size, 2)
                 pred_traj_rel += [output]
+                
             else:
                 traj_lstm_hidden_states += [traj_lstm_h_t]
             
-            sys.exit()
+            
         if training_step == 2:
+            """
+            $GN:
+            
+            - pred_traj_rel = [
+                tensor([164, 2]),
+                tensor([164, 2])
+                ...
+              ]
+              => torch.stack(pred_traj_rel): torch.Size([8, 164, 2])  
+            """
+            
+            """
+            $GN:
+            - seq_start_end = [[0, 2], [2, 4], [4, 7], [7, 10], [10, 13]... [155, 158], [158, 161], [161, 164]]
+            - traj_lstm_h_t: torch.Size([164, 32])
+            - traj_lstm_hidden_states += [traj_lstm_h_t]:
+            [
+                torch.Size([164, 32]),  _
+                torch.Size([164, 32])    |
+                ...                      | => 8個
+                torch.Size([164, 32])   _|
+            ]
+            => torch.stack(traj_lstm_hidden_states): torch.Size([8, 164, 32])
+            """
+            print("$models.py","torch.stack(traj_lstm_hidden_states):",torch.stack(traj_lstm_hidden_states).size())
             graph_lstm_input = self.gatencoder(
                 torch.stack(traj_lstm_hidden_states), seq_start_end
             )
+            print("$models.py","graph_lstm_input.size():",graph_lstm_input.size())
             for i in range(self.obs_len):
                 graph_lstm_h_t, graph_lstm_c_t = self.graph_lstm_model(
                     graph_lstm_input[i], (graph_lstm_h_t, graph_lstm_c_t)
@@ -363,6 +473,16 @@ class TrajectoryGenerator(nn.Module):
                 graph_lstm_hidden_states += [graph_lstm_h_t]
 
         if training_step == 1 or training_step == 2:
+            
+            """
+            $GN:
+            pred_traj_rel = [
+              tensor([164, 2]),
+              tensor([164, 2])
+              ...
+            ]
+            => torch.stack(pred_traj_rel): torch.Size([8, 164, 2])  
+            """
             return torch.stack(pred_traj_rel)
         else:
             encoded_before_noise_hidden = torch.cat(

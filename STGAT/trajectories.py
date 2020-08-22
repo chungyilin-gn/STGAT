@@ -62,8 +62,7 @@ $GN:
 
 def seq_collate(data):
 
-    print("$trajectories.py","call seq_collate(), len(data):", len(data) )
-
+    
     """
     $GN:
     - ex:
@@ -148,6 +147,11 @@ def seq_collate(data):
         non_linear_ped_list,
         loss_mask_list,
     ) = zip(*data)
+    '''
+    print("$trajectories.py"," 呼叫自定義function:call seq_collate():",
+          "\n len(data):", len(data),
+          "\n data進行zip()拆解, 將不同batch但相同資料型式(ex:obs_seq類型)合併")
+    '''
 
     # 每個time-frame軌跡數量的list       ex:[2, 2, 3, 3, 3, ...]
     _len = [len(seq) for seq in obs_seq_list]
@@ -164,17 +168,17 @@ def seq_collate(data):
     - obs_seq_list = 
     
     - obs_seq_list = 
-      (
-        self.obs_traj[0:2, :],      
-        self.obs_traj[2:4, :],
-        ...
-        self.obs_traj[161:164, :]
+      (                          _
+        self.obs_traj[0:2, :],    |  
+        self.obs_traj[2:4, :],    | => 64個
+        ...                       |
+        self.obs_traj[161:164, :]_|
       ),
-    - self.obs_traj[0:2, :] = 
-       tensor([[[10.3100,  9.5700,  8.7300,...],
-         [ 5.9700,  6.2400,  6.3400, ...]],
-        [[12.4900, 11.9400, 11.0300, ...],
-         [ 6.6000,  6.7700,  6.8400,  ...]]]), 
+        self.obs_traj[0:2, :] = 
+          tensor([[[10.3100,  9.5700,  8.7300,...],
+            [ 5.9700,  6.2400,  6.3400, ...]],
+            [[12.4900, 11.9400, 11.0300, ...],
+            [ 6.6000,  6.7700,  6.8400,  ...]]]), 
 
     => torch.cat(obs_seq_list, dim=0):串接成one tensor
      - tensor([
@@ -212,9 +216,11 @@ def seq_collate(data):
     # Data format: batch, input_size, seq_len
     # LSTM input format: seq_len, batch, input_size
     obs_traj = torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)
-    print("$trajectories.py","\n-torch.cat(obs_seq_list, dim=0)\n batch含有多少obs軌跡(size()):", (torch.cat(obs_seq_list, dim=0)).size(), "\n [0].size():",torch.cat(obs_seq_list, dim=0)[0].size())
-    print("$trajectories.py","\n-Tensor.permute(2, 0, 1)\n 每個observe frame含多少軌跡size():", (torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)).size(), "\n [0].size():",(torch.cat(obs_seq_list, dim=0).permute(2, 0, 1))[0].size())
-    
+    '''
+    print("$trajectories.py","\n ex:obs_traj",
+          "\n 同類型不同frame合併, size():", (torch.cat(obs_seq_list, dim=0)).size(),
+          "\n 進行轉置, size():", (torch.cat(obs_seq_list, dim=0).permute(2, 0, 1)).size())
+    '''
     
     pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
     obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
@@ -232,8 +238,6 @@ def seq_collate(data):
         seq_start_end,
     ]
     
-    #print("$trajectories.py","seq_collate->tuple(out)",tuple(out))
-
     return tuple(out)
 
 
@@ -319,7 +323,7 @@ class TrajectoryDataset(Dataset):
 
         all_files = os.listdir(self.data_dir)
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
-        num_peds_in_seq = []
+        num_peds_in_seq = [] #儲存每個time-frame(idx)有效的軌跡數量
         seq_list = []
         seq_list_rel = []
         loss_mask_list = []
@@ -332,21 +336,17 @@ class TrajectoryDataset(Dataset):
             $GN:
             - Step 1: 讀取原始檔案
               - ex: zara2/train/biwi_hotel_train.txt
-                data = [[ 0.0	1.0	1.41	-5.68]
-                        [ 0.0	2.0	0.51	-6.94]
-                        [ 0.0	3.0	2.3	-4.59]
+                data= [
+                        [7.800e+02 1.000e+00 8.460e+00 3.590e+00]
+                        [7.900e+02 1.000e+00 9.570e+00 3.790e+00]
+                        [8.000e+02 1.000e+00 1.067e+01 3.990e+00]
                         ...
-                        [10.0	1.0	1.28	-6.35]
-                        [10.0	2.0	0.55	-7.59]
-                        [10.0	3.0	1.94	-4.12]
-                        ...
-                        [20.0	3.0	1.53	-3.49]
-                        [20.0	4.0	2.73	-1.07]
-                        [20.0	5.0	-1.59	0.93]
-                        ...]
+                        [1.023e+04 2.540e+02 1.810e+00 5.190e+00]
+                        [1.023e+04 2.550e+02 1.200e+01 6.670e+00]
+                        [1.023e+04 2.560e+02 1.151e+01 7.530e+00]
+                      ]
             """
             data = read_file(path, delim)
-            print("$trajectories.py","#STEP-1 讀取檔案:"," File_Path:",path)
             
             """
             $GN:
@@ -357,7 +357,6 @@ class TrajectoryDataset(Dataset):
             - np.unique: 排除數組中的重複數字，並進行排序後輸出
             """
             frames = np.unique(data[:, 0]).tolist()
-            print("$trajectories.py","#STEP-2 unique time-frame數量:",len(frames))
 
             frame_data = []  #含相同frame number聚合成array的陣列
             """
@@ -383,15 +382,15 @@ class TrajectoryDataset(Dataset):
                 frame_data[0]: array([[780.  ,   1.  ,   8.46,   3.59]]) 
                 frame_data[1]: array([[790.  ,   1.  ,   9.57,   3.79]])
                 =>
-                frame_data[:2]:
+                frame_data[:3]:
                   [
                     array([[780.  ,   1.  ,   8.46,   3.59]]), 
                     array([[790.  ,   1.  ,   9.57,   3.79]]), 
+                    array([[800.  ,   1.  ,  10.67,   3.99], [800.  ,   2.  ,  13.64,   5.8 ]]), 
                   ]
             """
             for frame in frames:
                 frame_data.append(data[frame == data[:, 0], :])
-            print("$trajectories.py","#Step-3 相同time_frame的element合併\nex: data[]:", np.array(data).shape,"->frame_data[]",np.array(frame_data).shape )
             
             """
             $GN:
@@ -399,42 +398,72 @@ class TrajectoryDataset(Dataset):
               - var_name: num_sequences
             """
             num_sequences = int(math.ceil((len(frames) - self.seq_len + 1) / skip))
-            print("$trajectories.py","#Step-4 扣除obs_len+pre_len,剩餘可處理長度:", num_sequences)
+            
 
             """
-            $GN: 
-              *整體流程*
-              -idx=0
-                -frame_data[0 : 0 + seq_len] --(concat)-> curr_seq_data[] --(找出獨立ped_id)-> [1,2..,8]
-                  -ped_id=0 : 從curr_seq_data找出ped_id=0 --(確認長度是否符合)-> 是 -> 找出X/Y座標並轉成獨立陣列:np.transpose(curr_ped_seq[:, 2:]) -> 計算相對位置
-                  -ped_id=1 : 從curr_seq_data找出ped_id=0 --(確認長度是否符合)-> 是 -> 找出X/Y座標並轉成獨立陣列:np.transpose(curr_ped_seq[:, 2:]) -> 計算相對位置
-                  ...
-                -檢查合法的行人軌跡數量是否大於min -> 是, seq_list.append()
-              -idx=1
-                -frame_data[1 : 1 + seq_len] --(concat)-> curr_seq_data[] --(找出獨立ped_id)-> [1,2..,5]
-                  -ped_id=0 : 從curr_seq_data找出ped_id=0 --(確認長度是否符合)-> 是 -> 找出X/Y座標並轉成獨立陣列:np.transpose(curr_ped_seq[:, 2:]) -> 計算相對位置
-                  -ped_id=1 : 從curr_seq_data找出ped_id=0 --(確認長度是否符合)-> 是 -> 找出X/Y座標並轉成獨立陣列:np.transpose(curr_ped_seq[:, 2:]) -> 計算相對位置
-                  ...
-                -檢查合法的行人軌跡數量是否大於min -> 是, seq_list.append()
-              ...
-              -idx=num_sequences * self.skip 
+            $GN:
+              data[]:
+              [
+                [780.     1.     8.46   3.59]
+                [790.     1.     9.57   3.79]
+                [800.     1.    10.67   3.99]
+                [800.     2.    13.64   5.8 ]
+                [810.     1.    11.73   4.32] 
                 ...
-
-              =>最後得到每個time frame可用的軌跡:
-              seq_list=
-              [                                                          _        
-                [array([[[10.31,  9.57,  8.73,  ...],                     |
-                         [ 5.97,  6.24,  6.34,  ...]],                    | => idx=a的所有軌跡資料
-                        [[12.49, 11.94, 11.03, ...],                     _|
-                          [ 6.6 ,  6.77,  6.84,  ...]]]), 
-                array([[[ 1.251e+01,  1.154e+01,  ...],                  _      
-                          [ 6.190e+00,  6.030e+00,  5.970e+00,  ...]],    |
-                        [[ 1.209e+01,  1.140e+01,  1.070e+01,  ...],      | => idx=b的所有軌跡資料
-                          [ 6.950e+00,  6.930e+00,  6.870e+00,  ...]]]), _|
-                ...                                                           
               ]
+              => 相同frame合併:
+              frame_data[]: 
+              [ 
+                array([[780.  ,   1.  ,   8.46,   3.59]]), 
+                array([[790.  ,   1.  ,   9.57,   3.79]]), 
+                array([[800.  ,   1.  ,  10.67,   3.99], [800.  ,   2.  ,  13.64,   5.8 ]]), 
+                array([[810.  ,   1.  ,  11.73,   4.32], [810.  ,   2.  ,  12.09,   5.75]])
+              ]
+              => 每次抽出seq_len個array:
+              for idx in len(frame_data):
+                ->  idx=0 	[
+                            array([[780.  ,   1.  ,   8.46,   3.59]]), 
+                            array([[790.  ,   1.  ,   9.57,   3.79]]), 
+                            ...
+                            #0+seq_len
+                          ]
+                      
+                          => 將以上array concat:
+                          curr_seq_data[] =   
+                          [         
+                            [ 7.800e+02  1.000e+00  8.460e+00  3.590e+00]
+                            [ 7.900e+02  1.000e+00  9.570e+00  3.790e+00]
+                            ...
+                          ]
 
+                          => 宣告記錄軌跡的物件:
+                          curr_seq = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
+
+                    for unique ped in len(curr_seq_data):
+                      =>檢查ped軌跡長度, OK: 寫入 curr_seq
+
+                ->檢查 curr_seq長度, OK: seq_list.append(curr_seq[:num_peds_considered])
+
+                ->  idx=1 	array([[790.  ,   1.  ,   9.57,   3.79]]), 
+                      array([[800.  ,   1.  ,  10.67,   3.99], [800.  ,   2.  ,  13.64,   5.8 ]]), 
+                      ...
+                      #1+seq_len
+                    ...
             """
+            print("$trajectories.py","\n 讀取檔案:",
+                  "\n -File_Path:",path.split('datasets')[1],
+                  "\n -Raw Data shape:",np.array(data).shape,
+                  "\n 相同frame number的行人資訊合併:",
+                  "\n -frame_data[] shape:",np.array(frame_data).shape," (unique frame length=",len(frames),")",
+                  "\n 資料處理:",
+                  "\n for loop: 每次從frame_data抽出[seq_len個array]",
+                  "\n   [本次軌跡array]=(num_peds, 2, seq_len)",
+                  "\n   for loop: 從[seq_len個array]中找出獨立的行人ID(num_peds)",
+                  "\n     檢查此行人在[seq_len個array]內軌跡長度是否符合seq_len",
+                  "\n     若是, 此行人軌跡(shape:(2, seq_len))寫入[本次軌跡array]",
+                  "\n 檢查[本次軌跡array]數量是否大於min_ped",
+                  "\n 若是, (軌跡array)加入seq_list&seq_list_rel",
+                  "\n")
             for idx in range(0, num_sequences * self.skip + 1, skip):
                 
                 """
@@ -442,17 +471,18 @@ class TrajectoryDataset(Dataset):
                 - Step 5: 每次抽取frame_data[idx : idx+seq_len]個element, 並concat
                 - ex: 
                   frame_data[idx : idx + seq_len] =
-                  [
-                    array([[780.  ,   1.  ,   8.46,   3.59]]), 
-                    array([[790.  ,   1.  ,   9.57,   3.79]]), 
-                    array([[800.  ,   1.  ,  10.67,   3.99], [800.  ,   2.  ,  13.64,   5.8 ]]),
-                    ...
-                    array([[9.700e+02,  2.000e+00,  2.010e+00,  8.000e+00],[ 9.700e+02,  3.000e+00,  3.190e+00,  6.890e+00],  [ 9.700e+02,  4.000e+00,  1.101e+01,  5.320e+00], [ 9.700e+02,  5.000e+00,  1.082e+01,  4.490e+00],  [ 9.700e+02,  6.000e+00,  2.130e+00,  6.290e+00],[ 9.700e+02,  7.000e+00,  6.860e+00,  5.830e+00],[ 9.700e+02,  8.000e+00, -9.300e-01,  9.600e-01]])
+               _  [
+              |      array([[780.  ,   1.  ,   8.46,   3.59]]), 
+              |      array([[790.  ,   1.  ,   9.57,   3.79]]), 
+  每個array <-|       array([[800.  ,   1.  ,  10.67,   3.99], [800.  ,   2.  ,  13.64,   5.8 ]]),
+  可能有多個行人|           
+              |      ...
+              |_     array([[9.700e+02,  2.000e+00,  2.010e+00,  8.000e+00],[ 9.700e+02,  3.000e+00,  3.190e+00,  6.890e+00],  [ 9.700e+02,  4.000e+00,  1.101e+01,  5.320e+00], [ 9.700e+02,  5.000e+00,  1.082e+01,  4.490e+00],  [ 9.700e+02,  6.000e+00,  2.130e+00,  6.290e+00],[ 9.700e+02,  7.000e+00,  6.860e+00,  5.830e+00],[ 9.700e+02,  8.000e+00, -9.300e-01,  9.600e-01]])
                   ]
 
                   =>np.concatenate():
                     curr_seq_data[] =   
-                    [
+                    [         
                       [ 7.800e+02  1.000e+00  8.460e+00  3.590e+00]
                       [ 7.900e+02  1.000e+00  9.570e+00  3.790e+00]
                       [ 8.000e+02  1.000e+00  1.067e+01  3.990e+00]
@@ -593,7 +623,7 @@ class TrajectoryDataset(Dataset):
                                     [ 5.8   5.75  5.8   5.97  6.24 ...]]
                     """
                     curr_ped_seq = np.transpose(curr_ped_seq[:, 2:])
-                    curr_ped_seq = curr_ped_seq
+                    curr_ped_seq = curr_ped_seq  #shape: (2, 20)
                     
                     """
                     $GN:
@@ -728,9 +758,9 @@ class TrajectoryDataset(Dataset):
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
 
                     #print("符合的行人軌跡數量:",num_peds_considered,", 更新seq_list數量:",len(seq_list))
-            print("$trajectories.py","更新seq_list數量:",len(seq_list))
+            print("$trajectories.py"," 此檔案軌跡處理完畢\n ->更新有效軌跡數量(seq_list):",len(seq_list),"\n")
         
-        print("$trajectories.py","#STEP-5~13 含有可用軌跡(數量>min_ped)的time-frame數量:",len(seq_list),"\n*NOTE:一個time-frame array內含多個軌跡")
+        #print("$trajectories.py, seq_list長度:",len(seq_list),  seq_list[:2])
 
         """
         $GN:
@@ -738,8 +768,8 @@ class TrajectoryDataset(Dataset):
           - ex: 
             seq_list=
               [
-                array([[[10.31,  9.57,  8.73,  7.94,  7.17,  ...],
-                        [ 5.97,  6.24,  6.34,  6.5 ,  6.62,  ...]],
+                array([[[10.31,  9.57,  8.73,  7.94,  7.17,  ...],  #x座標
+                        [ 5.97,  6.24,  6.34,  6.5 ,  6.62,  ...]], #y座標
                       [[12.49, 11.94, 11.03, 10.21,  9.36,  ...],
                         [ 6.6 ,  6.77,  6.84,  6.81,  6.85,  ...]]]), 
                 array([[[ 1.251e+01,  1.154e+01,  1.096e+01,  1.029e+01,  9.880e+00, ...],
@@ -770,7 +800,7 @@ class TrajectoryDataset(Dataset):
         loss_mask_list = np.concatenate(loss_mask_list, axis=0)
         non_linear_ped = np.asarray(non_linear_ped)
 
-        print("$trajectories.py","#STEP-14 將各time-frame軌跡資料,融合成各自獨立的軌跡資料,shape:",seq_list.shape)
+        print("$trajectories.py"," 將各time-frame軌跡資料,拆成獨立的軌跡資料 \n -shape:",seq_list.shape)
 
         # Convert numpy -> Torch Tensor
         self.obs_traj = torch.from_numpy(seq_list[:, :, : self.obs_len]).type(
@@ -786,6 +816,7 @@ class TrajectoryDataset(Dataset):
             torch.float
         )
 
+        """
         print("$trajectories.py","obs_traj.shape:",np.array(self.obs_traj).shape)
         print("$trajectories.py","obs_traj[:5]:\n",np.array(self.obs_traj)[:5])
         print("$trajectories.py","obs_traj[-5:]:\n",np.array(self.obs_traj)[-5:])
@@ -798,6 +829,7 @@ class TrajectoryDataset(Dataset):
 
         print("$trajectories.py","pred_traj_rel[:5]:\n",np.array(self.pred_traj_rel)[:5])
         print("$trajectories.py","pred_traj_rel[-5:]:\n",np.array(self.pred_traj_rel)[-5:])
+        """
 
         self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
         self.non_linear_ped = torch.from_numpy(non_linear_ped).type(torch.float)
@@ -810,8 +842,10 @@ class TrajectoryDataset(Dataset):
         cum_start_idx =[0, 2, 4, 7, 10, 13, 16, 19, ... , 25503, 25505, 25507]
         """
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
+        """
         print("$trajectories.py","num_peds_in_seq:",num_peds_in_seq[:5],"...",num_peds_in_seq[-5:])
         print("$trajectories.py","cum_start_idx:",cum_start_idx[:5],"...",cum_start_idx[-5:])
+        """ 
 
         """
         $GN:
@@ -823,8 +857,7 @@ class TrajectoryDataset(Dataset):
         self.seq_start_end = [
             (start, end) for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ]
-        print("$trajectories.py","self.seq_start_end.length:",len(self.seq_start_end),"length of Batch:",math.ceil(len(self.seq_start_end)/64) )
-        print("$trajectories.py","self.seq_start_end:",self.seq_start_end[:64],'\nlength:',len(self.seq_start_end[:64]) )
+        print("$trajectories.py","記錄seq_list每個time frame行人數量的間隔:",self.seq_start_end[:64],'\n -數量:',len(self.seq_start_end[:64]),"\n -length of Batch:",math.ceil(len(self.seq_start_end)/64) )
 
     def __len__(self):
         return self.num_seq
@@ -888,12 +921,13 @@ class TrajectoryDataset(Dataset):
             self.loss_mask[start:end, :],
         ]
         
+        """
         if(index == 63 or index == 0 or index==1):
           print("$trajectories.py","call __getitem__():\nindex:",index,"\nstart:",start,", end:",end
                 ,"\nobs_traj:", out[0]
                 ,"\npred_traj:", out[1]
                 ,"\nobs_traj_rel:", out[2]
                 ,"\npred_traj_rel:", out[3])
-
+        """
 
         return out
