@@ -1461,13 +1461,12 @@ def train(args, model, train_loader, optimizer, epoch, training_step, writer):
         batch_tmp_time = time.time()
         # 使預測值逼近model_input (obseved data)
         if training_step == 1 or training_step == 2:
-            model_input = obs_traj_rel   # torch.Size([8, *164, 2])
+            #model_input = obs_traj_rel   # torch.Size([8, *164, 2])
+            model_input = norm_obs_traj_rel[:args.obs_len]
 
             pred_traj_fake_rel = model(  # torch.Size([8, *164, 2])
                 model_input, obs_traj, seq_start_end, 1, training_step
             )
-
-            #print('<Main/line:217> Model Process Prediction of Batch:', (time.time()-batch_tmp_time), (time.time()-batch_start_time))
 
             l2_loss_rel.append(
                 # mode="raw": 回傳每個傳入值的誤差 (已加總x,y&各time-step誤差)
@@ -1475,12 +1474,11 @@ def train(args, model, train_loader, optimizer, epoch, training_step, writer):
                 l2_loss(pred_traj_fake_rel, model_input, loss_mask, mode="raw")  #torch.Size([*164])
             )
             
-        else:
-            
+        else: 
             # [8, 164, 2]|| [12, 164, 2] => torch.Size([20, 164, 2])
-            model_input = torch.cat((obs_traj_rel, pred_traj_gt_rel), dim=0)
+            #model_input = torch.cat((obs_traj_rel, pred_traj_gt_rel), dim=0)
+            model_input = norm_obs_traj_rel
 
-            start_time = time.time()
             for _ in range(args.best_k):
 
                 # in training_step==3 => 實際預測prediction(len=12)
@@ -1561,6 +1559,45 @@ def validate(args, model, val_loader, epoch, writer):
                 loss_mask,
                 seq_start_end,
             ) = batch
+
+            #------------#
+            # 串接obs_len+pred_len
+            obs_traj_rel_cat = torch.cat((obs_traj_rel, pred_traj_gt_rel), dim=0)  #(20,164,2)
+            obs_traj_cat = torch.cat((obs_traj, pred_traj_gt), dim=0)   #(20,164,2)
+            
+            #記錄每個時間點max/min
+            scaler_rel_max_list = []  
+            scaler_rel_min_list = []  
+            scaler_pos_max_list = []  
+            scaler_pos_min_list = []  
+
+            scaler_rel_min_list, scaler_rel_max_list, norm_obs_traj_rel = Normalize_Data(obs_traj_rel_cat)  #(20,164,2)
+            #---------------#
+            '''
+            inv_traj_rel = Inverse_Data(scaler_rel_min_list, scaler_rel_max_list, norm_obs_traj_rel)
+
+            for time_idx in range(len(obs_traj_rel_cat)):
+                obs_traj_rel_cat_time = obs_traj_rel_cat[time_idx]
+                data = torch.tensor(obs_traj_rel_cat_time)
+                plt.scatter(data.cpu()[:,0],data.cpu()[:,1])
+                plt.title("raw, time:"+str(time_idx))
+                plt.show()
+
+                norm_obs_traj_rel_time = norm_obs_traj_rel[time_idx]
+                data = torch.tensor(norm_obs_traj_rel_time)
+                plt.scatter(data.cpu()[:,0],data.cpu()[:,1])
+                plt.title("norm, time:"+str(time_idx))
+                plt.show()
+
+                inv_traj_rel_time = inv_traj_rel[time_idx]
+                data = torch.tensor(inv_traj_rel_time)
+                plt.scatter(data.cpu()[:,0],data.cpu()[:,1])
+                plt.title("inv, time:"+str(time_idx))
+                plt.show()
+            
+            sys.exit()
+            '''
+
             loss_mask = loss_mask[:, args.obs_len :]
             pred_traj_fake_rel = model(obs_traj_rel, obs_traj, seq_start_end)
 
